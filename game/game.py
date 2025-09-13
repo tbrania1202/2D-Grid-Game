@@ -80,6 +80,13 @@ def draw_board():
         (10, BOARD_SIZE * CELL_SIZE + 10, life * 5, 20)
     )
 
+    # Draw life text
+    text = font.render(f"Life: {life}", True, WHITE)
+    screen.blit(
+        text,
+        (BOARD_SIZE * CELL_SIZE - 120, BOARD_SIZE * CELL_SIZE + 8)
+    )
+
     pygame.display.flip()
 
 
