@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+import asyncio
 
 # === Config ===
 BOARD_SIZE = 10       # n x n board
@@ -14,15 +15,16 @@ BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 BLUE = (0, 0, 255)    # Player
 GREEN = (0, 255, 0)   # Item
-RED = (255, 0, 0)     # Life bar
+RED = (255, 0, 0)     # Opponent
+PINK = (255, 100, 150)  # Life bar
 
 # === Init Pygame ===
 pygame.init()
 screen = pygame.display.set_mode(
     (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 40)
 )
-pygame.display.set_caption("Async Game Demo - Step 2")
-clock = pygame.time.Clock()
+pygame.display.set_caption("Async Game Demo - Pure Async")
+font = pygame.font.SysFont(None, 36)
 
 # === Player State ===
 player_pos = [BOARD_SIZE // 2, BOARD_SIZE // 2]  # start at center
@@ -31,15 +33,12 @@ life = INITIAL_LIFE
 # === Items ===
 items = []  # list of (x, y) positions
 
-# Setup custom timers
-LIFE_EVENT = pygame.USEREVENT + 1
-ITEM_EVENT = pygame.USEREVENT + 2
-pygame.time.set_timer(LIFE_EVENT, 1000)   # decrease life every second
-pygame.time.set_timer(ITEM_EVENT, ITEM_SPAWN_RATE)  # spawn items
+# === Opponent (async controlled) ===
+opponent_pos = [0, 0]  # top-left corner initially
 
 
 def draw_board():
-    """Draw grid, player, items, and life bar."""
+    """Draw grid, player, items, opponent, and life bar."""
     screen.fill(BLACK)
 
     # Draw grid
@@ -51,10 +50,8 @@ def draw_board():
     # Draw items
     for ix, iy in items:
         rect = pygame.Rect(
-            ix * CELL_SIZE,
-            iy * CELL_SIZE,
-            CELL_SIZE,
-            CELL_SIZE
+            ix * CELL_SIZE, iy * CELL_SIZE,
+            CELL_SIZE, CELL_SIZE
         )
         pygame.draw.rect(screen, GREEN, rect)
 
@@ -67,10 +64,19 @@ def draw_board():
     )
     pygame.draw.rect(screen, BLUE, rect)
 
+    # Draw opponent
+    rect = pygame.Rect(
+        opponent_pos[0] * CELL_SIZE,
+        opponent_pos[1] * CELL_SIZE,
+        CELL_SIZE,
+        CELL_SIZE
+    )
+    pygame.draw.rect(screen, RED, rect)
+
     # Draw life bar
     pygame.draw.rect(
         screen,
-        RED,
+        PINK,
         (10, BOARD_SIZE * CELL_SIZE + 10, life * 5, 20)
     )
 
@@ -100,32 +106,87 @@ def check_item_collision():
             break
 
 
-# === Main Loop ===
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+def check_opponent_collision():
+    """Check if opponent touches player."""
+    return (
+        player_pos[0] == opponent_pos[0]
+        and player_pos[1] == opponent_pos[1]
+    )
 
-        elif event.type == LIFE_EVENT:
-            life -= 1
-            if life <= 0:
-                print("Game Over!")
+
+# === Async Opponent Task ===
+async def move_opponent():
+    """Async task that moves opponent randomly every second."""
+    while True:
+        await asyncio.sleep(1)  # move every second
+        direction = random.choice(["up", "down", "left", "right"])
+        if direction == "up" and opponent_pos[1] > 0:
+            opponent_pos[1] -= 1
+        elif direction == "down" and opponent_pos[1] < BOARD_SIZE - 1:
+            opponent_pos[1] += 1
+        elif direction == "left" and opponent_pos[0] > 0:
+            opponent_pos[0] -= 1
+        elif direction == "right" and opponent_pos[0] < BOARD_SIZE - 1:
+            opponent_pos[0] += 1
+
+
+# === Async Item Spawner ===
+async def spawn_items():
+    """Spawn items periodically."""
+    while True:
+        await asyncio.sleep(ITEM_SPAWN_RATE / 1000)
+        new_item = (
+            random.randint(0, BOARD_SIZE - 1),
+            random.randint(0, BOARD_SIZE - 1)
+        )
+        if new_item not in items and new_item != tuple(player_pos):
+            items.append(new_item)
+
+
+# === Main Async Game Loop ===
+async def main():
+    global life
+    clock_interval = 1 / FPS
+    last_life_tick = pygame.time.get_ticks()
+
+    # Start background tasks
+    asyncio.create_task(move_opponent())
+    asyncio.create_task(spawn_items())
+
+    running = True
+    while running:
+        # Handle events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
                 running = False
 
-        elif event.type == ITEM_EVENT:
-            # Spawn random item if space is free
-            new_item = (
-                random.randint(0, BOARD_SIZE - 1),
-                random.randint(0, BOARD_SIZE - 1)
-                )
-            if new_item not in items and new_item != tuple(player_pos):
-                items.append(new_item)
+        # Player input
+        handle_input()
 
-    handle_input()
-    check_item_collision()
-    draw_board()
-    clock.tick(FPS)
+        # Check collisions
+        check_item_collision()
+        if check_opponent_collision():
+            print("Game Over! Opponent caught you.")
+            running = False
 
-pygame.quit()
-sys.exit()
+        # Decrease life every 1 second
+        now = pygame.time.get_ticks()
+        if now - last_life_tick >= 1000:
+            life -= 1
+            last_life_tick = now
+            if life <= 0:
+                print("Game Over! Out of life.")
+                running = False
+
+        # Draw everything
+        draw_board()
+
+        # Async wait instead of clock.tick()
+        await asyncio.sleep(clock_interval)
+
+    pygame.quit()
+    sys.exit()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
