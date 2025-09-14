@@ -25,7 +25,7 @@ It will feature:
 
 ## 🏗 Planned Architecture  
 
-The game will be split into multiple modules inside the `gra_modular` folder:  
+The game will be split into multiple modules inside the `game` folder:  
 
 - `core/` – main game logic (player, opponents, utils, game loop).  
 - `tests/` – unit and integration tests written with pytest.  
