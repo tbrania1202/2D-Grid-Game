@@ -2,60 +2,66 @@ import pygame
 import sys
 import random
 import asyncio
+import threading
+import time
 
 # === Config ===
-BOARD_SIZE = 10       # n x n board
-CELL_SIZE = 50        # pixel size of each cell
-FPS = 10              # frames per second
-INITIAL_LIFE = 30     # starting life (seconds)
-ITEM_SPAWN_RATE = 2000  # in milliseconds (every 2 seconds)
+BOARD_SIZE = 10
+CELL_SIZE = 50
+FPS = 10
+INITIAL_LIFE = 30
+ITEM_SPAWN_RATE = 2000  # ms
 
 # Colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 BLUE = (0, 0, 255)    # Player
 GREEN = (0, 255, 0)   # Item
-RED = (255, 0, 0)     # Opponent
-PINK = (255, 100, 150)  # Life bar
+RED = (255, 0, 0)     # Async Opponent
+ORANGE = (255, 165, 0)  # Thread Opponent
+PINK = (255, 100, 150)
 
 # === Init Pygame ===
 pygame.init()
 screen = pygame.display.set_mode(
     (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 40)
 )
-pygame.display.set_caption("Async Game Demo - Pure Async")
+pygame.display.set_caption("Game Demo - Step 4 (Async + Thread Opponent)")
 font = pygame.font.SysFont(None, 36)
 
 # === Player State ===
-player_pos = [BOARD_SIZE // 2, BOARD_SIZE // 2]  # start at center
+player_pos = [BOARD_SIZE // 2, BOARD_SIZE // 2]
 life = INITIAL_LIFE
 
 # === Items ===
-items = []  # list of (x, y) positions
+items = []
 
-# === Opponent (async controlled) ===
-opponent_pos = [0, 0]  # top-left corner initially
+# === Opponents ===
+async_opponent = [0, 0]         # red (async controlled)
+thread_opponent = [BOARD_SIZE-1, BOARD_SIZE-1]  # orange (thread controlled)
 
 
 def draw_board():
-    """Draw grid, player, items, opponent, and life bar."""
+    """Draw everything."""
     screen.fill(BLACK)
 
-    # Draw grid
+    # Grid
     for x in range(0, BOARD_SIZE * CELL_SIZE, CELL_SIZE):
         pygame.draw.line(screen, WHITE, (x, 0), (x, BOARD_SIZE * CELL_SIZE))
     for y in range(0, BOARD_SIZE * CELL_SIZE, CELL_SIZE):
         pygame.draw.line(screen, WHITE, (0, y), (BOARD_SIZE * CELL_SIZE, y))
 
-    # Draw items
+    # Items
     for ix, iy in items:
         rect = pygame.Rect(
-            ix * CELL_SIZE, iy * CELL_SIZE,
-            CELL_SIZE, CELL_SIZE
+            ix * CELL_SIZE,
+            iy * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
         )
         pygame.draw.rect(screen, GREEN, rect)
 
-    # Draw player
+    # Player
     rect = pygame.Rect(
         player_pos[0] * CELL_SIZE,
         player_pos[1] * CELL_SIZE,
@@ -64,23 +70,29 @@ def draw_board():
     )
     pygame.draw.rect(screen, BLUE, rect)
 
-    # Draw opponent
+    # Opponents
     rect = pygame.Rect(
-        opponent_pos[0] * CELL_SIZE,
-        opponent_pos[1] * CELL_SIZE,
+        async_opponent[0] * CELL_SIZE,
+        async_opponent[1] * CELL_SIZE,
         CELL_SIZE,
         CELL_SIZE
     )
     pygame.draw.rect(screen, RED, rect)
 
-    # Draw life bar
+    rect = pygame.Rect(
+        thread_opponent[0] * CELL_SIZE,
+        thread_opponent[1] * CELL_SIZE,
+        CELL_SIZE,
+        CELL_SIZE
+    )
+    pygame.draw.rect(screen, ORANGE, rect)
+
+    # Life bar
     pygame.draw.rect(
         screen,
         PINK,
         (10, BOARD_SIZE * CELL_SIZE + 10, life * 5, 20)
     )
-
-    # Draw life text
     text = font.render(f"Life: {life}", True, WHITE)
     screen.blit(
         text,
@@ -91,7 +103,7 @@ def draw_board():
 
 
 def handle_input():
-    """Move player with WASD keys."""
+    """Player controls with WASD."""
     keys = pygame.key.get_pressed()
     if keys[pygame.K_w] and player_pos[1] > 0:
         player_pos[1] -= 1
@@ -104,42 +116,59 @@ def handle_input():
 
 
 def check_item_collision():
-    """Check if player collected an item."""
+    """Collect items."""
     global life
     for i, (ix, iy) in enumerate(items):
         if player_pos[0] == ix and player_pos[1] == iy:
             items.pop(i)
-            life += 5  # increase life when item collected
+            life += 5
             break
 
 
-def check_opponent_collision():
-    """Check if opponent touches player."""
-    return (
-        player_pos[0] == opponent_pos[0]
-        and player_pos[1] == opponent_pos[1]
-    )
+def check_collisions():
+    """Check collisions with opponents."""
+    if player_pos == async_opponent:
+        print("Game Over! Async Opponent caught you.")
+        return True
+    if player_pos == thread_opponent:
+        print("Game Over! Thread Opponent caught you.")
+        return True
+    return False
 
 
-# === Async Opponent Task ===
-async def move_opponent():
-    """Async task that moves opponent randomly every second."""
+# === Async Opponent ===
+async def move_async_opponent():
     while True:
-        await asyncio.sleep(1)  # move every second
+        await asyncio.sleep(1)
         direction = random.choice(["up", "down", "left", "right"])
-        if direction == "up" and opponent_pos[1] > 0:
-            opponent_pos[1] -= 1
-        elif direction == "down" and opponent_pos[1] < BOARD_SIZE - 1:
-            opponent_pos[1] += 1
-        elif direction == "left" and opponent_pos[0] > 0:
-            opponent_pos[0] -= 1
-        elif direction == "right" and opponent_pos[0] < BOARD_SIZE - 1:
-            opponent_pos[0] += 1
+        if direction == "up" and async_opponent[1] > 0:
+            async_opponent[1] -= 1
+        elif direction == "down" and async_opponent[1] < BOARD_SIZE - 1:
+            async_opponent[1] += 1
+        elif direction == "left" and async_opponent[0] > 0:
+            async_opponent[0] -= 1
+        elif direction == "right" and async_opponent[0] < BOARD_SIZE - 1:
+            async_opponent[0] += 1
 
 
-# === Async Item Spawner ===
+# === Thread Opponent ===
+def move_thread_opponent():
+    """Thread loop that moves independently."""
+    while True:
+        time.sleep(1.5)  # slower than async one
+        direction = random.choice(["up", "down", "left", "right"])
+        if direction == "up" and thread_opponent[1] > 0:
+            thread_opponent[1] -= 1
+        elif direction == "down" and thread_opponent[1] < BOARD_SIZE - 1:
+            thread_opponent[1] += 1
+        elif direction == "left" and thread_opponent[0] > 0:
+            thread_opponent[0] -= 1
+        elif direction == "right" and thread_opponent[0] < BOARD_SIZE - 1:
+            thread_opponent[0] += 1
+
+
+# === Item Spawner ===
 async def spawn_items():
-    """Spawn items periodically."""
     while True:
         await asyncio.sleep(ITEM_SPAWN_RATE / 1000)
         new_item = (
@@ -157,26 +186,25 @@ async def main():
     last_life_tick = pygame.time.get_ticks()
 
     # Start background tasks
-    asyncio.create_task(move_opponent())
+    asyncio.create_task(move_async_opponent())
     asyncio.create_task(spawn_items())
+
+    # Start thread opponent
+    t = threading.Thread(target=move_thread_opponent, daemon=True)
+    t.start()
 
     running = True
     while running:
-        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        # Player input
         handle_input()
-
-        # Check collisions
         check_item_collision()
-        if check_opponent_collision():
-            print("Game Over! Opponent caught you.")
+        if check_collisions():
             running = False
 
-        # Decrease life every 1 second
+        # Life countdown
         now = pygame.time.get_ticks()
         if now - last_life_tick >= 1000:
             life -= 1
@@ -185,10 +213,7 @@ async def main():
                 print("Game Over! Out of life.")
                 running = False
 
-        # Draw everything
         draw_board()
-
-        # Async wait instead of clock.tick()
         await asyncio.sleep(clock_interval)
 
     pygame.quit()
