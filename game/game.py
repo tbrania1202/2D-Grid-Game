@@ -5,6 +5,7 @@ import asyncio
 import threading
 import time
 import multiprocessing as mp
+import psutil  # for system stats
 
 # === Config ===
 BOARD_SIZE = 10
@@ -94,6 +95,16 @@ def draw_board():
         text,
         (BOARD_SIZE * CELL_SIZE - 120, BOARD_SIZE * CELL_SIZE + 8)
     )
+
+    # === System Stats ===
+    cpu = psutil.cpu_percent()
+    mem = psutil.virtual_memory().percent
+    threads = threading.active_count()
+    stats_text = font.render(
+        f"CPU: {cpu}%  MEM: {mem}%  Threads: {threads}", True, WHITE
+    )
+    screen.blit(stats_text, (10, BOARD_SIZE * CELL_SIZE + 40))
+
     pygame.display.flip()
 
 
@@ -189,9 +200,9 @@ async def main():
     pygame.init()
     global screen, font
     screen = pygame.display.set_mode(
-        (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 40)
+        (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 80)
     )
-    pygame.display.set_caption("Game Demo - Step 5 (Safe Multiprocessing)")
+    pygame.display.set_caption("Game Demo - System Stats Added")
     font = pygame.font.SysFont(None, 36)
     pygame.time.set_timer(SPAWN_ITEM_EVENT, ITEM_SPAWN_RATE)
 
@@ -213,7 +224,6 @@ async def main():
 
     running = True
     while running:
-        # Handle pygame events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
