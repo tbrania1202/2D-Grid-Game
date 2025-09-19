@@ -100,10 +100,11 @@ def draw_board():
     cpu = psutil.cpu_percent()
     mem = psutil.virtual_memory().percent
     threads = threading.active_count()
-    stats_text = font.render(
-        f"CPU: {cpu}%  MEM: {mem}%  Threads: {threads}", True, WHITE
-    )
-    screen.blit(stats_text, (10, BOARD_SIZE * CELL_SIZE + 40))
+    processes_count = len(mp.active_children())
+    stats_text = f"CPU: {cpu}% MEM: {mem}% "
+    stats_text += f"Threads: {threads} Procs: {processes_count}"
+    text = font.render(stats_text, True, WHITE)
+    screen.blit(text, (10, BOARD_SIZE * CELL_SIZE + 40))
 
     pygame.display.flip()
 
