@@ -5,10 +5,10 @@ import asyncio
 import threading
 import time
 import multiprocessing as mp
-import psutil  # for system stats
+import psutil
 
 # === Config ===
-BOARD_SIZE = 10
+BOARD_SIZE = 12
 CELL_SIZE = 50
 FPS = 10
 INITIAL_LIFE = 30
@@ -33,12 +33,21 @@ life = INITIAL_LIFE
 items = []
 
 # === Opponents ===
-async_opponent = [0, 0]               # red
-thread_opponent = [BOARD_SIZE-1, BOARD_SIZE-1]  # orange
-process_opponent = [0, BOARD_SIZE-1]  # purple
+corners = [
+    [0, 0],
+    [0, BOARD_SIZE-1],
+    [BOARD_SIZE-1, 0],
+    [BOARD_SIZE-1, BOARD_SIZE-1]
+]
+async_opponents = [[0, 0]]
+thread_opponents = [[BOARD_SIZE-1, BOARD_SIZE-1]]
+process_opponents = [[0, BOARD_SIZE-1]]
+
+# === Process management ===
+process_queues = []
+processes = []
 
 
-# === Draw Functions ===
 def draw_board():
     screen.fill(BLACK)
     for x in range(0, BOARD_SIZE * CELL_SIZE, CELL_SIZE):
@@ -62,28 +71,33 @@ def draw_board():
         CELL_SIZE
     )
     pygame.draw.rect(screen, BLUE, rect)
-    # Opponents
-    rect = pygame.Rect(
-        async_opponent[0] * CELL_SIZE,
-        async_opponent[1] * CELL_SIZE,
-        CELL_SIZE,
-        CELL_SIZE
-    )
-    pygame.draw.rect(screen, RED, rect)
-    rect = pygame.Rect(
-        thread_opponent[0] * CELL_SIZE,
-        thread_opponent[1] * CELL_SIZE,
-        CELL_SIZE,
-        CELL_SIZE
-    )
-    pygame.draw.rect(screen, ORANGE, rect)
-    rect = pygame.Rect(
-        process_opponent[0] * CELL_SIZE,
-        process_opponent[1] * CELL_SIZE,
-        CELL_SIZE,
-        CELL_SIZE
-    )
-    pygame.draw.rect(screen, PURPLE, rect)
+    # Async opponents
+    for pos in async_opponents:
+        rect = pygame.Rect(
+            pos[0] * CELL_SIZE,
+            pos[1] * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
+        )
+        pygame.draw.rect(screen, RED, rect)
+    # Thread opponents
+    for pos in thread_opponents:
+        rect = pygame.Rect(
+            pos[0] * CELL_SIZE,
+            pos[1] * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
+        )
+        pygame.draw.rect(screen, ORANGE, rect)
+    # Process opponents
+    for pos in process_opponents:
+        rect = pygame.Rect(
+            pos[0] * CELL_SIZE,
+            pos[1] * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
+        )
+        pygame.draw.rect(screen, PURPLE, rect)
     # Life bar
     pygame.draw.rect(
         screen,
@@ -100,9 +114,9 @@ def draw_board():
     cpu = psutil.cpu_percent()
     mem = psutil.virtual_memory().percent
     threads = threading.active_count()
-    processes_count = len(mp.active_children())
-    stats_text = f"CPU: {cpu}% MEM: {mem}% "
-    stats_text += f"Threads: {threads} Procs: {processes_count}"
+    processes_count = len(processes)
+    stats_text = f"CPU: {cpu}%  MEM: {mem}%  "
+    stats_text += f"Threads: {threads}  Procs: {processes_count}"
     text = font.render(stats_text, True, WHITE)
     screen.blit(text, (10, BOARD_SIZE * CELL_SIZE + 40))
 
@@ -121,78 +135,122 @@ def handle_input():
         player_pos[0] += 1
 
 
-def check_item_collision():
+def check_item_collision(loop):
     global life
+
+    # Player collision
     for i, (ix, iy) in enumerate(items):
         if player_pos[0] == ix and player_pos[1] == iy:
             items.pop(i)
             life += 5
-            break
+            return
+
+    # Async opponents
+    for pos in async_opponents:
+        for i, (ix, iy) in enumerate(items):
+            if pos[0] == ix and pos[1] == iy:
+                items.pop(i)
+                new_pos = random.choice(corners)
+                async_opponents.append(new_pos)
+                loop.create_task(move_single_async_opponent(new_pos))
+                return
+
+    # Thread opponents
+    for pos in thread_opponents:
+        for i, (ix, iy) in enumerate(items):
+            if pos[0] == ix and pos[1] == iy:
+                items.pop(i)
+                new_pos = random.choice(corners)
+                thread_opponents.append(new_pos)
+                t = threading.Thread(
+                    target=move_single_thread_opponent,
+                    args=(new_pos,),
+                    daemon=True
+                )
+                t.start()
+                return
+
+    # Process opponents
+    for pos in process_opponents:
+        for i, (ix, iy) in enumerate(items):
+            if pos[0] == ix and pos[1] == iy:
+                items.pop(i)
+                new_pos = random.choice(corners)
+                process_opponents.append(new_pos)
+                q = mp.Queue()
+                p = mp.Process(
+                    target=process_opponent_worker,
+                    args=(q, [new_pos], BOARD_SIZE),
+                    daemon=True
+                )
+                p.start()
+                process_queues.append(q)
+                processes.append(p)
+                return
 
 
 def check_collisions():
-    if player_pos == async_opponent:
-        print("Game Over! Async Opponent caught you.")
-        return True
-    if player_pos == thread_opponent:
-        print("Game Over! Thread Opponent caught you.")
-        return True
-    if player_pos == process_opponent:
-        print("Game Over! Process Opponent caught you.")
-        return True
+    for pos in async_opponents + thread_opponents + process_opponents:
+        if player_pos == pos:
+            print("Game Over! Opponent caught you.")
+            return True
     return False
 
 
-# === Async Opponent ===
-async def move_async_opponent():
+# === Async Opponents ===
+async def move_single_async_opponent(pos):
     while True:
-        await asyncio.sleep(1)
-        direction = random.choice(["up", "down", "left", "right"])
-        if direction == "up" and async_opponent[1] > 0:
-            async_opponent[1] -= 1
-        elif direction == "down" and async_opponent[1] < BOARD_SIZE - 1:
-            async_opponent[1] += 1
-        elif direction == "left" and async_opponent[0] > 0:
-            async_opponent[0] -= 1
-        elif direction == "right" and async_opponent[0] < BOARD_SIZE - 1:
-            async_opponent[0] += 1
-
-
-# === Thread Opponent ===
-def move_thread_opponent():
-    while True:
-        time.sleep(1.5)
-        direction = random.choice(["up", "down", "left", "right"])
-        if direction == "up" and thread_opponent[1] > 0:
-            thread_opponent[1] -= 1
-        elif direction == "down" and thread_opponent[1] < BOARD_SIZE - 1:
-            thread_opponent[1] += 1
-        elif direction == "left" and thread_opponent[0] > 0:
-            thread_opponent[0] -= 1
-        elif direction == "right" and thread_opponent[0] < BOARD_SIZE - 1:
-            thread_opponent[0] += 1
-
-
-# === Process Opponent Worker ===
-def process_opponent_worker(queue, start_pos, board_size):
-    pos = start_pos[:]
-    while True:
-        time.sleep(2)
+        await asyncio.sleep(3)
         direction = random.choice(["up", "down", "left", "right"])
         if direction == "up" and pos[1] > 0:
             pos[1] -= 1
-        elif direction == "down" and pos[1] < board_size - 1:
+        elif direction == "down" and pos[1] < BOARD_SIZE - 1:
             pos[1] += 1
         elif direction == "left" and pos[0] > 0:
             pos[0] -= 1
-        elif direction == "right" and pos[0] < board_size - 1:
+        elif direction == "right" and pos[0] < BOARD_SIZE - 1:
             pos[0] += 1
-        queue.put(pos)
+
+
+# === Thread Opponents ===
+def move_single_thread_opponent(pos):
+    while True:
+        time.sleep(3)
+        direction = random.choice(["up", "down", "left", "right"])
+        if direction == "up" and pos[1] > 0:
+            pos[1] -= 1
+        elif direction == "down" and pos[1] < BOARD_SIZE - 1:
+            pos[1] += 1
+        elif direction == "left" and pos[0] > 0:
+            pos[0] -= 1
+        elif direction == "right" and pos[0] < BOARD_SIZE - 1:
+            pos[0] += 1
+
+
+# === Process Opponent Worker ===
+def process_opponent_worker(queue, start_positions, board_size):
+    positions = start_positions[:]
+    while True:
+        time.sleep(3)
+        new_positions = []
+        for pos in positions:
+            direction = random.choice(["up", "down", "left", "right"])
+            if direction == "up" and pos[1] > 0:
+                pos[1] -= 1
+            elif direction == "down" and pos[1] < board_size - 1:
+                pos[1] += 1
+            elif direction == "left" and pos[0] > 0:
+                pos[0] -= 1
+            elif direction == "right" and pos[0] < board_size - 1:
+                pos[0] += 1
+            new_positions.append(pos)
+        positions = new_positions
+        queue.put(positions)
 
 
 # === Main Async Game Loop ===
 async def main():
-    global life, process_opponent
+    global life
 
     clock_interval = 1 / FPS
     last_life_tick = pygame.time.get_ticks()
@@ -203,28 +261,40 @@ async def main():
     screen = pygame.display.set_mode(
         (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 80)
     )
-    pygame.display.set_caption("Game Demo - System Stats Added")
+    pygame.display.set_caption("Game Demo - Multiple Opponents")
     font = pygame.font.SysFont(None, 36)
     pygame.time.set_timer(SPAWN_ITEM_EVENT, ITEM_SPAWN_RATE)
 
-    # Start async opponent
-    asyncio.create_task(move_async_opponent())
+    loop = asyncio.get_running_loop()
 
-    # Start thread opponent
-    t = threading.Thread(target=move_thread_opponent, daemon=True)
-    t.start()
+    # Start async opponents
+    for pos in async_opponents:
+        loop.create_task(move_single_async_opponent(pos))
 
-    # Start process opponent
-    q = mp.Queue()
-    p = mp.Process(
-        target=process_opponent_worker,
-        args=(q, process_opponent, BOARD_SIZE),
-        daemon=True
-    )
-    p.start()
+    # Start thread opponents
+    for pos in thread_opponents:
+        t = threading.Thread(
+            target=move_single_thread_opponent,
+            args=(pos,),
+            daemon=True
+        )
+        t.start()
+
+    # Start process opponents
+    for pos in process_opponents:
+        q = mp.Queue()
+        p = mp.Process(
+            target=process_opponent_worker,
+            args=(q, [pos], BOARD_SIZE),
+            daemon=True
+        )
+        p.start()
+        process_queues.append(q)
+        processes.append(p)
 
     running = True
     while running:
+        # Handle pygame events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -237,14 +307,17 @@ async def main():
                     items.append(new_item)
 
         handle_input()
-        check_item_collision()
+        check_item_collision(loop)
 
         # Receive process opponent updates
-        try:
-            while not q.empty():
-                process_opponent = q.get_nowait()
-        except Exception:
-            pass
+        for idx, q in enumerate(process_queues):
+            try:
+                while not q.empty():
+                    updates = q.get_nowait()
+                    if idx < len(process_opponents):
+                        process_opponents[idx:idx+len(updates)] = updates
+            except Exception:
+                pass
 
         if check_collisions():
             running = False
@@ -263,6 +336,7 @@ async def main():
 
     pygame.quit()
     sys.exit()
+
 
 # === Entry Point ===
 if __name__ == "__main__":
