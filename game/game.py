@@ -14,13 +14,16 @@ FPS = 10
 INITIAL_LIFE = 30
 ITEM_SPAWN_RATE = 2000  # ms
 SPAWN_ITEM_EVENT = pygame.USEREVENT + 1  # custom event ID
+ASYNC_OPPONENT_SLEEP = 1
+THREAD_OPPONENT_SLEEP = 1
+PROCESS_OPPONENT_SLEEP = 1
 
-# Colors
+# === Colors ===
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 BLUE = (0, 0, 255)      # Player
 GREEN = (0, 255, 0)     # Item
-RED = (255, 0, 0)       # Async Opponent
+RED = (255, 0, 0)       # Async Opponenta
 ORANGE = (255, 165, 0)  # Thread Opponent
 PURPLE = (160, 32, 240)  # Process Opponent
 PINK = (255, 100, 150)
@@ -35,9 +38,9 @@ items = []
 # === Opponents ===
 corners = [
     [0, 0],
-    [0, BOARD_SIZE-1],
-    [BOARD_SIZE-1, 0],
-    [BOARD_SIZE-1, BOARD_SIZE-1]
+    [0, BOARD_SIZE - 1],
+    [BOARD_SIZE - 1, 0],
+    [BOARD_SIZE - 1, BOARD_SIZE - 1]
 ]
 async_opponents = [[0, 0]]
 thread_opponents = [[BOARD_SIZE-1, BOARD_SIZE-1]]
@@ -107,7 +110,7 @@ def draw_board():
     text = font.render(f"Life: {life}", True, WHITE)
     screen.blit(
         text,
-        (BOARD_SIZE * CELL_SIZE - 120, BOARD_SIZE * CELL_SIZE + 8)
+        (BOARD_SIZE * CELL_SIZE - 150, BOARD_SIZE * CELL_SIZE + 8)
     )
 
     # === System Stats ===
@@ -200,7 +203,7 @@ def check_collisions():
 # === Async Opponents ===
 async def move_single_async_opponent(pos):
     while True:
-        await asyncio.sleep(3)
+        await asyncio.sleep(ASYNC_OPPONENT_SLEEP)
         direction = random.choice(["up", "down", "left", "right"])
         if direction == "up" and pos[1] > 0:
             pos[1] -= 1
@@ -215,7 +218,7 @@ async def move_single_async_opponent(pos):
 # === Thread Opponents ===
 def move_single_thread_opponent(pos):
     while True:
-        time.sleep(3)
+        time.sleep(THREAD_OPPONENT_SLEEP)
         direction = random.choice(["up", "down", "left", "right"])
         if direction == "up" and pos[1] > 0:
             pos[1] -= 1
@@ -231,7 +234,7 @@ def move_single_thread_opponent(pos):
 def process_opponent_worker(queue, start_positions, board_size):
     positions = start_positions[:]
     while True:
-        time.sleep(3)
+        time.sleep(PROCESS_OPPONENT_SLEEP)
         new_positions = []
         for pos in positions:
             direction = random.choice(["up", "down", "left", "right"])
@@ -254,18 +257,22 @@ async def main():
 
     clock_interval = 1 / FPS
     last_life_tick = pygame.time.get_ticks()
+    elapsed_time = 0
 
     # Initialize Pygame
     pygame.init()
     global screen, font
     screen = pygame.display.set_mode(
-        (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 80)
+        (BOARD_SIZE * CELL_SIZE, BOARD_SIZE * CELL_SIZE + 120)
     )
     pygame.display.set_caption("Game Demo - Multiple Opponents")
     font = pygame.font.SysFont(None, 36)
     pygame.time.set_timer(SPAWN_ITEM_EVENT, ITEM_SPAWN_RATE)
 
     loop = asyncio.get_running_loop()
+
+    # Start play timer
+    pygame.time.get_ticks()
 
     # Start async opponents
     for pos in async_opponents:
@@ -325,13 +332,24 @@ async def main():
         # Life countdown
         now = pygame.time.get_ticks()
         if now - last_life_tick >= 1000:
-            life -= 1
             last_life_tick = now
+            life -= 1
+            elapsed_time += 1
             if life <= 0:
                 print("Game Over! Out of life.")
                 running = False
 
         draw_board()
+
+        # Draw play timer (after board)
+        timer_text = font.render(f"Time: {elapsed_time}s", True, WHITE)
+        screen.blit(
+            timer_text,
+            (BOARD_SIZE * CELL_SIZE - 150, BOARD_SIZE * CELL_SIZE + 90)
+        )
+        # screen.blit(timer_text, (10, BOARD_SIZE * CELL_SIZE + 90))
+        pygame.display.flip()
+
         await asyncio.sleep(clock_interval)
 
     pygame.quit()
